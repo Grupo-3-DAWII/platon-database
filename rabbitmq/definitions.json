@@ -1,0 +1,100 @@
+{
+    "users":  [
+                  {
+                      "hashing_algorithm":  "rabbit_password_hashing_sha256",
+                      "tags":  [
+                                   "administrator"
+                               ],
+                      "name":  "guest",
+                      "password_hash":  "5mEsHSc6vq6xpX6MfRQFcCp0H62dwCxrsKKrEHxY8EE4InpA"
+                  }
+              ],
+    "vhosts":  [
+                   {
+                       "name":  "/"
+                   }
+               ],
+    "permissions":  [
+                        {
+                            "vhost":  "/",
+                            "write":  ".*",
+                            "user":  "guest",
+                            "configure":  ".*",
+                            "read":  ".*"
+                        }
+                    ],
+    "exchanges":  [
+                      {
+                          "internal":  false,
+                          "name":  "platon.purchase.events",
+                          "durable":  true,
+                          "type":  "topic",
+                          "auto_delete":  false,
+                          "vhost":  "/",
+                          "arguments":  {
+
+                                        }
+                      }
+                  ],
+    "queues":  [
+                   {
+                       "vhost":  "/",
+                       "durable":  true,
+                       "auto_delete":  false,
+                       "name":  "platon.purchase.created",
+                       "arguments":  {
+
+                                     }
+                   },
+                   {
+                       "vhost":  "/",
+                       "durable":  true,
+                       "auto_delete":  false,
+                       "name":  "platon.products.purchase.validation",
+                       "arguments":  {
+                                         "x-message-ttl":  30000
+                                     }
+                   },
+                   {
+                       "vhost":  "/",
+                       "durable":  true,
+                       "auto_delete":  false,
+                       "name":  "platon.products.payment.rejected",
+                       "arguments":  {
+
+                                     }
+                   }
+               ],
+    "bindings":  [
+                     {
+                         "source":  "platon.purchase.events",
+                         "destination":  "platon.purchase.created",
+                         "arguments":  {
+
+                                       },
+                         "vhost":  "/",
+                         "destination_type":  "queue",
+                         "routing_key":  "purchase.created"
+                     },
+                     {
+                         "source":  "platon.purchase.events",
+                         "destination":  "platon.products.purchase.validation",
+                         "arguments":  {
+
+                                       },
+                         "vhost":  "/",
+                         "destination_type":  "queue",
+                         "routing_key":  "purchase.requested"
+                     },
+                     {
+                         "source":  "platon.purchase.events",
+                         "destination":  "platon.products.payment.rejected",
+                         "arguments":  {
+
+                                       },
+                         "vhost":  "/",
+                         "destination_type":  "queue",
+                         "routing_key":  "payment.rejected"
+                     }
+                 ]
+}

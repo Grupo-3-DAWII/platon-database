@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: platon-account-postgres
+    environment:
+      POSTGRES_DB: account_db
+      POSTGRES_USER: account_user
+      POSTGRES_PASSWORD: account_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - account_postgres_data:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: platon-rabbitmq
+    hostname: rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 12
+
+volumes:
+  account_postgres_data:
+  rabbitmq_data:
+    name: platon_rabbitmq_data
