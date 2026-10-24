@@ -1,90 +1,52 @@
-# Base de datos
+# Platon · DATABASE
 
-Este proyecto levanta PostgreSQL y RabbitMQ con Docker Compose, incluyendo el esquema SQL y la topologia de eventos de Platon.
+PostgreSQL y RabbitMQ para Platon.
 
 ## Requisitos
 
-- Docker Desktop instalado y ejecutandose.
-- Terminal ubicada en esta carpeta:
+Docker con Compose (`docker compose`) y los puertos `5432`, `5672` y `15672` libres.
 
-```powershell
-cd C:\Users\nekro\Desktop\CIBERTEC\DATABASE
+## Uso
+
+Desde la carpeta `DATABASE` (donde está `docker-compose.yml`):
+
+```bash
+docker compose up -d --wait   # levantar
+docker compose ps             # ver estado
+docker compose down           # detener (conserva los datos)
 ```
 
-## Levantar PostgreSQL y RabbitMQ
+## Accesos
 
-```powershell
-docker compose up -d
-```
+| Servicio | Dirección | Usuario | Password |
+| --- | --- | --- | --- |
+| PostgreSQL | `localhost:5432` · base `account_db` | `account_user` | `account_pass` |
+| RabbitMQ (AMQP) | `localhost:5672` | `guest` | `guest` |
+| RabbitMQ (panel) | <http://localhost:15672> | `guest` | `guest` |
 
-Esto crea un contenedor PostgreSQL con estos datos:
+Usuarios de prueba de la aplicación: `admin` / `admin123` y `usuario` / `usuario123`.
 
-```text
-Host: localhost
-Puerto: 5432
-Base de datos: account_db
-Usuario: account_user
-Password: account_pass
-```
+> Credenciales solo para desarrollo local.
 
-## Ver contenedores activos
+## Base de datos
 
-```powershell
-docker compose ps
-```
+Tres schemas dentro de `account_db`:
 
-## Ver logs
+| Schema | Tablas |
+| --- | --- |
+| `account` | `status`, `roles`, `users` |
+| `products` | `editorial`, `genre`, `product`, `stock_movement`, `purchase_stock_deduction` |
+| `payment` | `state_sold`, `products_sold`, `products_sold_item`, `purchase_event_outbox`, `user_products` |
 
-```powershell
-docker compose logs -f postgres
-```
+Los scripts de `init/` se ejecutan en orden (01, 02, 03) **solo al crear el volumen por primera vez**. Este proyecto es el único que crea y actualiza las tablas; los microservicios no lo hacen.
 
-## Conectarse a PostgreSQL desde Docker
+Conectarse con `psql`:
 
-```powershell
+```bash
 docker exec -it platon-account-postgres psql -U account_user -d account_db
 ```
 
-Dentro de `psql`, puedes listar los schemas con:
-
-```sql
-\dn
-```
-
-Y listar las tablas con:
-
-```sql
-\dt account.*
-\dt products.*
-\dt payment.*
-```
-
-## Detener la base de datos
-
-```powershell
-docker compose down
-```
-
-## Reiniciar la base de datos desde cero
-
-El script `init/01-create-database-schema.sql` solo se ejecuta la primera vez que se crea el volumen de PostgreSQL.
-
-Si cambiaste el archivo `init/01-create-database-schema.sql` y quieres aplicar todo desde cero, ejecuta:
-
-```powershell
-docker compose down -v
-docker compose up -d
-```
-
-Esto elimina el volumen anterior y vuelve a crear la base con el script actual.
-
-## Esquema de productos
-
-El init incluye el modelo del microservicio de productos dentro del schema `products`:
-`editorial`, `genre`, `product` y `stock_movement`, con indices, restricciones y datos iniciales.
-La clave foranea de `payment.products_sold.id_products` referencia `products.product.idproduct`.
-
-Para conectar el microservicio de productos a esta instancia, configura estas variables de entorno:
+Para el microservicio de Products:
 
 ```text
 DB_URL=jdbc:postgresql://localhost:5432/account_db?currentSchema=products
@@ -92,62 +54,36 @@ DB_USERNAME=account_user
 DB_PASSWORD=account_pass
 ```
 
-Este archivo prepara instalaciones nuevas. No migra las tablas ni los datos del modelo anterior
-(`products.products`, `author`, `gender`, `state_products` y `products_log`) en volumenes existentes.
-Para conservar esos datos se requiere una migracion; no ejecutes `docker compose down -v` en ese caso.
-## Esquema de compras, usuarios y stock
+## RabbitMQ
 
-La creacion y actualizacion del esquema se centraliza en este proyecto. Payments y Products tienen Spring SQL Init desactivado; no crean tablas al iniciar.
+Exchange, colas y bindings se crean solos al arrancar (desde `rabbitmq/definitions.json`):
 
-El unico script de inicializacion es `init/01-create-database-schema.sql`. Incluye:
+| Exchange (topic) | Cola | Routing key |
+| --- | --- | --- |
+| `platon.purchase.events` | `platon.purchase.created` | `purchase.created` |
+| `platon.purchase.events` | `platon.products.purchase.validation` (TTL 30 s) | `purchase.requested` |
+| `platon.purchase.events` | `platon.products.payment.rejected` | `payment.rejected` |
 
-- Tablas y datos iniciales de cuentas, con la fecha de creacion del usuario.
-- Catalogo de productos, movimientos de stock y registro de descuentos y devoluciones.
-- Ventas de ejemplo, estados, identificador de descuento de stock, outbox y productos del usuario.
+Ver colas: `docker exec platon-rabbitmq rabbitmqctl list_queues name messages consumers`
 
-El script completo se ejecuta en una transaccion al crear un volumen nuevo. No debe ejecutarse
-sobre una base existente: reiniciar el contenedor conserva sus datos y no repite el init.
+## Reiniciar desde cero
 
-El Compose independiente de Products monta este mismo archivo y define
-`PLATON_PRODUCTS_ONLY=true`: crea solo el esquema `products`, con sus cinco tablas y datos
-iniciales. El Compose compartido crea `account`, `products` y `payment` como antes.
-El archivo usa instrucciones de `psql`, el cliente utilizado por la imagen oficial de PostgreSQL.
+Si cambiaste algo en `init/` y quieres aplicarlo:
 
-## RabbitMQ y eventos de compras
-
-Desde DATABASE, el mismo comando levanta ambos servicios y espera la comprobacion de salud de RabbitMQ:
-
-```powershell
+```bash
+docker compose down -v
 docker compose up -d --wait
 ```
 
-RabbitMQ queda en el contenedor `platon-rabbitmq`, puerto AMQP `5672`, panel `http://localhost:15672`, usuario `guest` y password `guest`. La configuracion local usa el mismo acceso de desarrollo que Payments y Products. Sus datos se conservan en el volumen `platon_rabbitmq_data`.
+> `-v` borra los datos de PostgreSQL y RabbitMQ.
 
-El broker carga `rabbitmq/definitions.json` al arrancar, mediante `rabbitmq/rabbitmq.conf`. Se inicializan el virtual host `/`, el usuario local, los permisos y estos recursos durables sin necesitar que arranquen los microservicios:
+## Actualizar una base existente (sin borrar datos)
 
-| Exchange topic | Cola | Routing key |
-| --- | --- | --- |
-| `platon.purchase.events` | `platon.purchase.created` | `purchase.created` |
-| `platon.purchase.events` | `platon.products.purchase.validation` | `purchase.requested` |
-| `platon.purchase.events` | `platon.products.payment.rejected` | `payment.rejected` |
+Con Payments detenido, ejecuta en este orden:
 
-La cola de validacion conserva su TTL de 30000 ms. Las colas exclusivas `purchase.availability.checked.<uuid>` son temporales y Payments las crea por instancia para recibir respuestas correlacionadas; no forman parte del init persistente.
-
-Los microservicios usan los nombres publicados en Config Server. Ya no declaran exchanges ni colas durables. La topologia estatica pertenece a DATABASE; las colas y los mensajes persisten al recrear el contenedor mientras se conserve el volumen.
-
-```powershell
-docker compose ps
-docker compose logs -f rabbitmq
-docker exec platon-rabbitmq rabbitmq-diagnostics -q check_running
-docker exec platon-rabbitmq rabbitmqctl list_queues name messages consumers
+```bash
+docker exec -it platon-account-postgres psql -U account_user -d account_db -f /docker-entrypoint-initdb.d/02-grouped-sales-upgrade.sql
+docker exec -it platon-account-postgres psql -U account_user -d account_db -f /docker-entrypoint-initdb.d/03-purchase-amounts-upgrade.sql
 ```
 
-Para reiniciar solo RabbitMQ:
-
-```powershell
-docker compose restart rabbitmq
-```
-
-No se debe ejecutar al mismo tiempo otro RabbitMQ que publique `5672` o `15672`. En este equipo, el contenedor anterior `rabbitmq` y su volumen `rabbitmq_rabbitmq-data` se conservan detenidos como respaldo de la migracion a este Compose. Sus mensajes y recursos existentes se copiaron al volumen de Platon con el broker detenido, conservando el hostname `rabbitmq` y la misma imagen.
-
-`docker compose down` conserva los datos. `docker compose down -v` elimina los volumenes de PostgreSQL y RabbitMQ de esta pila; se usa solo para un reinicio deliberado desde cero.
+No ejecutes `01-create-database-schema.sql` sobre una base con datos.
